@@ -1,0 +1,45 @@
+name: SMP relay
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "probe = 접속/구조 진단만, fetch = 실제 수집"
+        default: "probe"
+        type: choice
+        options: [probe, fetch]
+  schedule:
+    # 한국시간 18:00~21:59 사이 15분마다 (UTC 09~12시), 00:20, 06:50
+    - cron: "*/15 9-12 * * *"
+    - cron: "20 15 * * *"
+    - cron: "50 21 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: smp-relay
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests beautifulsoup4
+      - name: 진단 (probe)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'probe'
+        run: python fetch_smp.py --probe
+      - name: 수집 (fetch)
+        if: github.event_name == 'schedule' || github.event.inputs.mode == 'fetch'
+        run: python fetch_smp.py
+      - name: 변경 사항 저장
+        if: github.event_name == 'schedule' || github.event.inputs.mode == 'fetch'
+        run: |
+          git config user.name "smp-relay"
+          git config user.email "smp-relay@users.noreply.github.com"
+          git add data/smp-jeju.json || true
+          git diff --cached --quiet || (git commit -m "update SMP data" && git push)
