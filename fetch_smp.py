@@ -183,9 +183,17 @@ def probe():
 
 
 # ---------------------------------------------------------------- 저장
+def is_published(c):
+    """발표된 날짜인지. 전력거래소는 아직 발표하지 않은 날짜를 0(또는 빈칸)으로 채워 보여주므로,
+    24시간 값이 모두 있고 그중 0이 아닌 값이 하나라도 있어야 '발표됨'으로 본다."""
+    h = c.get("hourly") or []
+    vals = [v for v in h if v is not None]
+    return len(h) == 24 and len(vals) == 24 and any(v != 0 for v in vals)
+
+
 def merge_into(store, parsed):
     for d, c in parsed["cols"].items():
-        if any(v is not None for v in c["hourly"]):
+        if is_published(c):
             store["days"][d] = c
 
 
@@ -197,7 +205,8 @@ def main():
     if os.path.exists(OUT):
         try:
             old = json.load(open(OUT, encoding="utf-8"))
-            store["days"] = old.get("days", {})
+            # 이전 실행에서 '미발표(전부 0)' 날짜가 잘못 저장돼 있으면 걸러낸다
+            store["days"] = {d: c for d, c in old.get("days", {}).items() if is_published(c)}
         except Exception:  # noqa: BLE001
             pass
     s = requests.Session()
@@ -209,7 +218,7 @@ def main():
     merge_into(store, base)
     log(f"기본 화면 기준일 {base['heading']}, 날짜 {list(base['cols'].keys())}")
     tomorrow = (datetime.now(KST).date() + timedelta(days=1)).isoformat()
-    if tomorrow not in store["days"] or all(v is None for v in store["days"][tomorrow]["hourly"]):
+    if tomorrow not in store["days"]:
         try:
             r2 = post_date(s, r.text, tomorrow)
             p2 = parse_table(r2.text)
